@@ -67,7 +67,7 @@ void drawPoint(float x, float y, const float color[4])
 /*********************************************************************************/
 
 
-//board contents definitions
+//board colorCode definitions
 #define NO_TILE     0
 #define RED_TILE    1
 #define ORANGE_TILE 2
@@ -99,14 +99,14 @@ const float BLACK[4]            = {0.0f, 0.0f, 0.0f, 1.0f};
 const float WHITE[4]            = {1.0f, 1.0f, 1.0f, 1.0f};
 
 
-//===============GAME OBJECTS AND PARAMETERS===============
+//===============STRUCTS AND GLOBAL VARIABLES===============
 
-//tile struct
+//Tile struct
 typedef struct Tile
 {
 	int tileID;
-	float x;
-	float y;
+	float x; //coordinate in game space
+	float y; //coordinate in game space
 	float color[4];
 	Tile& operator=(const Tile&);
 	void printTileInfo();
@@ -125,39 +125,50 @@ Tile& Tile::operator=(const Tile& tile)
 	return *this;
 }
 
-//print tile info (for debugging)
-void Tile::printTileInfo()
+//Coordinate in the board
+typedef struct BoardCoor
 {
-	cout << "(" << x << "," << y << "); {";
-	for(int i=0; i<4; i++)
-		if(i!=3)
-			cout << color[i] << ",";
-	cout << "}\n";
-}
+	int x;
+	int y;
+} BoardCoor_t;
+
+//BoardCell struct (contents of board array)
+typedef struct BoardCell
+{
+	int colorCode;
+	int tileID; //-1 if there is no tile
+} BoardCell_t;
 
 //game board (filled with numbers 0 to 8)
-int board[4][4];
+BoardCell_t board[4][4];
 
 //vector to store tileVec currently present in the game
 vector<Tile_t> tileVec;
 
+//vector containing tileIDs of removed tile
+vector<int> remTilesID;
+
 //game parameters
 bool gameOver;
+bool boardUpdated;
+bool disableAnimation;
 int score;
 
-//=========================================================
+//==========================================================
 
 
 /*****************FUNCTIONS*****************/
 /*******************BELOW*******************/
-
 
 //initialize board (make all location empty)
 void initBoard()
 {
 	for(int y=0; y<4; y++)
 		for(int x=0; x<4; x++)
-			board[y][x] = NO_TILE;
+		{
+			board[y][x].colorCode = NO_TILE;
+			board[y][x].tileID = -1;
+		}
 }
 
 //print board (for debugging)
@@ -166,8 +177,21 @@ void printBoard()
 	for(int y=3; y>=0; y--)
 	{
 		for(int x=0; x<4; x++)
-			cout<<board[y][x]<<" ";
+			cout<<board[y][x].colorCode<<","<<board[y][x].tileID<<"  ";
 		cout<<endl;
+	}
+	cout<<endl;
+}
+
+//print tileVec (for debugging)
+void printTileVec()
+{
+	for(int i=0; i<tileVec.size(); i++)
+	{
+		cout << "(" << tileVec[i].x << "," << tileVec[i].y << "); { ";
+		for(int c=0; c<4; c++)
+			cout << tileVec[i].color[c] << " ";
+		cout << "}\n";
 	}
 	cout<<endl;
 }
@@ -194,25 +218,24 @@ bool boardFull()
 {
 	for(int y=0; y<4; y++)
 		for(int x=0; x<4; x++)
-			if(board[y][x]==NO_TILE)
+			if(board[y][x].colorCode==NO_TILE)
 				return false;
 	return true;
 	//return (tileVec.size()==16);
 }
 
-//returns true if board location (x,y) is occupied, false otherwise
-bool isOccupied(int x, int y)
-{
-	return board[y][x]!=0;
-}
-
 //creates a new tile...
-void newTile()
+void newTile(int x)
 {
+	cout<<"newTile() called!\n";
+
 	gameOver = boardFull();
 
 	if(gameOver)
 		return;
+
+	boardUpdated = false;
+	disableAnimation = true;
 
 	Tile_t newTile;
 
@@ -220,32 +243,36 @@ void newTile()
 	{
 		newTile.x = rand()%4;
 		newTile.y = rand()%4;
-	} while(isOccupied(newTile.x, newTile.y));
+	} while(board[(int)newTile.y][(int)newTile.x].colorCode!=NO_TILE);
 
 	int p = rand()%100;
 
 	if(p<50) //50% chance red
 		for(int i=0; i<4; i++)
 			newTile.color[i] = RED[i];
-	else //50% change orange
+	else //50% chance orange
 		for(int i=0; i<4; i++)
 			newTile.color[i] = ORANGE[i];
 
 	newTile.tileID = tileVec.size();
-	cout<<newTile.tileID<<endl;
 
-	board[(int)newTile.y][(int)newTile.x] = p<50?1:2;
+	cout<<"newTile.tileID = "<<newTile.tileID<<endl<<endl;
+
+	board[(int)newTile.y][(int)newTile.x].colorCode = p<50?1:2;
+	board[(int)newTile.y][(int)newTile.x].tileID = newTile.tileID;
+
 	tileVec.push_back(newTile);
 
 	printBoard();
+	printTileVec();
 }
 
-bool canMoveUp(const Tile_t& tile)
+/*bool canMoveUp(const Tile_t& tile)
 {
 	if(tile.y>=2.95)
 		return false;
 
-	/*vector<Tile_t> tmpTileVec = tileVec;
+	vector<Tile_t> tmpTileVec = tileVec;
 	for(int i=0; i<tmpTileVec.size(); i++)
 		if(tile.tileID == tmpTileVec[i].tileID)
 		{
@@ -254,7 +281,7 @@ bool canMoveUp(const Tile_t& tile)
 		}
 
 	for(int i=0; i<tmpTileVec.size(); i++)
-		if(tile.x+1==tmpTileVec[i])*/
+		if(tile.x+1==tmpTileVec[i])
 
 
 	return true;
@@ -266,46 +293,97 @@ bool allCannotMoveUp()
 		if(canMoveUp(tileVec[i]))
 			return false;
 	return true;
+}*/
+
+BoardCoor_t getCoorByID(int tileID)
+{
+	for(int y=0; y<4; y++)
+		for(int x=0; x<4; x++)
+			if(board[y][x].tileID==tileID)
+			{
+				BoardCoor_t ret;
+				ret.x=x;
+				ret.y=y;
+				return ret;
+			}
 }
 
-void moveUp(int value)
+bool allTilesInCorrectPlaces()
 {
-	cout<<"SAVAGE\n";
+	for(int i=0; i<tileVec.size(); i++)
+	{
+		BoardCoor_t tmpBoardCoor = getCoorByID(tileVec[i].tileID);
+		if(tmpBoardCoor.x!=tileVec[i].x || tmpBoardCoor.y!=tileVec[i].y)
+			return false;
+	}
+	return true;
+}
+
+void moveUp()
+{
+	cout<<"moveUp() called!\n";
+
+	disableAnimation = false;
 
 	for(int i=0; i<3; i++)
 		for(int y=0; y<4; y++)
 			for(int x=0; x<4; x++)
-				if(board[y][x]!=NO_TILE && y<3)
+				if(board[y][x].colorCode!=NO_TILE && y<3)
 				{
-					if(board[y+1][x]==NO_TILE || board[y+1][x]==board[y][x])
+					if(board[y+1][x].colorCode==NO_TILE || board[y+1][x].colorCode==board[y][x].colorCode)
 					{
 						cout<<"yay\n";
-						board[y+1][x] = board[y][x];
-						board[y][x] = NO_TILE;
+						if(board[y+1][x].colorCode==board[y][x].colorCode)
+						{
+							board[y+1][x].colorCode = board[y][x].colorCode+1;
+							board[y+1][x].tileID = board[y][x].tileID;
+						}
+						else
+						{
+							board[y+1][x].colorCode = board[y][x].colorCode;
+							board[y+1][x].tileID = board[y][x].tileID;
+						}
+						board[y][x].colorCode = NO_TILE;
+						board[y][x].tileID = -1;
 					}
 				}
 
-
+	cout<<endl;
 
 	printBoard();
+	printTileVec();
+}
 
-	/*for(int i=0; i<tileVec.size(); i++)
+void moveUpAnimation(int value)
+{
+	if(!allTilesInCorrectPlaces() && !disableAnimation)
+		glutTimerFunc(10, moveUpAnimation, value);
+
+	for(int i=0; i<tileVec.size(); i++)
 	{
-		if(canMoveUp(tileVec[i]))
-			tileVec[i].y+=0.05f;
-		cout<<tileVec[i].y<<endl;
+		BoardCoor_t destCoor = getCoorByID(tileVec[i].tileID);
+		if(destCoor.y<2)
+		{
+			if(tileVec[i].y < destCoor.y)
+				tileVec[i].y+=0.05f;
+		}
+		else
+		{
+			if(tileVec[i].y < destCoor.y-0.05)
+				tileVec[i].y+=0.05f;
+		}
+		//cout<<tileVec[i].y<<endl;
 	}
-	if(!allCannotMoveUp())
-		glutTimerFunc(5, moveUpAnimation, value);*/
 }
 
 void initGame()
 {
 	gameOver = false;
+	boardUpdated = false;
 	score = 0;
 	initBoard();
 	tileVec.clear();
-	newTile();
+	newTile(16.5);
 }
 
 //render a single tile on xy-position of the board ( (0,0) is left bottom )
@@ -345,10 +423,16 @@ void display()
 //handle arrow key keypresses
 void special(int key, int x, int y)
 {
+	if(gameOver)
+		return;
+
 	switch(key)
 	{
 		case GLUT_KEY_UP:
-			moveUp(-1);
+			moveUp();
+			glutTimerFunc(0, moveUpAnimation, 16.5);
+			/*if(!disableAnimation)
+				glutTimerFunc(1000, newTile, 16.5);*/
 			break;
 
 		case GLUT_KEY_RIGHT:
@@ -382,7 +466,7 @@ void keyboard(unsigned char key, int x, int y)
 		case ' ':
 			break;
 		case 't':
-			newTile();
+			newTile(16.5);
 			break;
 		default:
 			break;
@@ -411,17 +495,19 @@ int main(int argc, char** argv)
 	glHint(GL_LINE_SMOOTH_HINT, GL_NICEST);
 	glPointSize(4.0f); //big chunky points
 
+	//disable key repeat
+	glutIgnoreKeyRepeat(1);
+
 	//set up a 2D top-down view
 	glMatrixMode(GL_PROJECTION);
 	glLoadIdentity();
-	glOrtho(-10.0, 10.0, -10.0, 10.0, -1.0, 1.0);
+	glOrtho(-10.0f, 10.0f, -10.0f, 10.0f, -1.0f, 1.0f);
 
 	initGame();
 
 	//callback functions
 	glutDisplayFunc(display);
 	glutSpecialFunc(special);
-	//glutIgnoreKeyRepeat(1); //disable key repeat
 	glutKeyboardFunc(keyboard);
 	glutIdleFunc(idle);
 
